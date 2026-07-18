@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fridge Map Hub V5.0 - Bản đồ Chia sẻ Thực phẩm Lân cận</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+    <style>
+        /* CSS Cơ bản */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+        }
+        .header {
+            background-color: #38a169;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header button {
+            background-color: #fbd38d; 
+            color: #975a16; 
+            padding: 8px 15px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            margin-top: 10px;
+        }
+        .main-content {
+            display: flex;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 15px;
+            gap: 20px;
+        }
+        #map {
+            flex: 1; 
+            height: 550px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .sidebar {
+            flex: 1; 
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .filter-section {
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .filter-section label, .filter-section select {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .filter-section select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        .item-list-container {
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow-y: auto; 
+            max-height: 400px; 
+        }
+        .item-card {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .item-card:hover { background-color: #f0fff4; }
+        .item-card h4 { margin: 0; font-size: 1.1em; color: #38a169; }
+        .item-card p { margin: 2px 0; font-size: 0.9em; color: #555; }
+        .distance-tag { font-weight: bold; color: #2c5282; margin-top: 5px; display: block; }
+        .status-expire { color: #e53e3e; font-weight: bold; }
+        .leaflet-div-icon { background: none; border: none; }
+        
+        /* Modal CSS */
+        .modal {
+            display: none; 
+            position: fixed;
+            z-index: 1000; 
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4); 
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; 
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close-btn:hover, .close-btn:focus { color: black; text-decoration: none; cursor: pointer; }
+        .modal-content input, .modal-content select {
+            width: 95%;
+            padding: 10px;
+            margin: 5px 0 15px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        /* Notification Banner CSS */
+        #notification-banner {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #4299e1;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 100;
+            display: none;
+            transition: top 0.5s ease-out;
+        }
+        /* CSS cho Cửa sổ Chat */
+        .message {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 15px;
+            max-width: 80%;
+            font-size: 0.9em;
+        }
+        .message.received {
+            background-color: #e2e8f0; /* Xám nhạt */
+            float: left;
+            clear: both;
+            text-align: left;
+        }
+        .message.sent {
+            background-color: #c6f6d5; /* Xanh lá nhạt */
+            float: right;
+            clear: both;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="notification-banner"></div>
+
+    <div class="header">
+        <h2>Fridge Map Hub</h2>
+        <p>Bản đồ Tủ lạnh: Xem đồ ăn sắp hỏng gần bạn nhất!</p>
+        <button id="openModalBtn" style="display: none;">+ Đăng Món đồ Mới</button>
+    </div>
+
+    <div class="main-content" style="display: none;">
+        <div id="map"></div>
+
+        <div class="sidebar">
+            
+            <div class="filter-section">
+                <h3>Bộ lọc Nhanh</h3>
+                <label for="distanceFilter">Khoảng cách Tối đa (km):</label>
+                <select id="distanceFilter" onchange="applyFilters()">
+                    <option value="5">Tất cả</option>
+                    <option value="0.5">Dưới 500m (Siêu gần)</option>
+                    <option value="1.0">Dưới 1km (Đi bộ)</option>
+                    <option value="2.0">Dưới 2km (Lân cận)</option>
+                </select>
+
+                <label for="statusFilter">Tình trạng Vật phẩm:</label>
+                <select id="statusFilter" onchange="applyFilters()">
+                    <option value="all">Tất cả</option>
+                    <option value="Sắp Hỏng">Cần Cứu trợ (Sắp Hỏng)</option>
+                    <option value="Bình thường">Bình thường</option>
+                </select>
+            </div>
+
+            <div class="item-list-container">
+                <h3>Danh sách Vật phẩm Sẵn có</h3>
+                <div id="itemList">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loginModal" class="modal" style="display: block;">
+        <div class="modal-content">
+            <h3>Chào mừng đến với Fridge Map Hub!</h3>
+            <p>Vui lòng đăng ký để kết nối với cộng đồng chia sẻ lân cận.</p>
+            <form id="loginForm">
+                <label for="userName">Tên của bạn (Bắt buộc):</label>
+                <input type="text" id="userName" required placeholder="Ví dụ: Nguyễn Văn A">
+
+                <label for="userRole">Vai trò (Bắt buộc):</label>
+                <select id="userRole" required>
+                    <option value="">-- Chọn --</option>
+                    <option value="student">Sinh viên</option>
+                    <option value="worker">Người đi làm</option>
+                </select>
+
+                <label for="userPlace">Nơi đang học/làm việc (Bắt buộc):</label>
+                <input type="text" id="userPlace" required placeholder="Ví dụ: Đại học Bách khoa Hà Nội">
+
+                <label for="userPhone">Số điện thoại (Bắt buộc):</label>
+                <input type="tel" id="userPhone" required placeholder="Ví dụ: 0912345678">
+
+                <button type="submit" style="background-color: #2c5282; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px;">Hoàn tất Đăng ký</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="postModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn post-close-btn">&times;</span>
+            <h3>Đăng Món đồ Bạn Muốn Chia sẻ</h3>
+            <form id="postForm">
+                <label for="itemName">Tên Vật phẩm:</label>
+                <input type="text" id="itemName" required>
+
+                <label for="itemStatus">Tình trạng:</label>
+                <select id="itemStatus" required>
+                    <option value="Sắp Hỏng">Cần Cứu trợ (Sắp Hỏng)</option>
+                    <option value="Bình thường">Bình thường</option>
+                </select>
+
+                <label for="itemType">Mục đích:</label>
+                <select id="itemType" required>
+                    <option value="Tặng/Bán rẻ">Tặng/Bán rẻ</option>
+                    <option value="Trao đổi">Trao đổi</option>
+                    <option value="Bán">Bán</option>
+                </select>
+                
+                <label for="itemExpiry">Hạn dùng (Mô tả ngắn):</label>
+                <input type="text" id="itemExpiry" required placeholder="Ví dụ: Hôm nay, 3 ngày nữa">
+
+                <button type="submit" style="background-color: #38a169; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px;">Đăng Bài</button>
+            </form>
+        </div>
+    </div>
+    
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn detail-close-btn">&times;</span>
+            <h3 id="detailItemName">Tên Vật phẩm</h3>
+            
+            <div id="detailBody">
+                </div>
+
+            <div style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 15px;">
+                <h4>Hành động Trao đổi</h4>
+                <p>Bạn có thể liên hệ trực tiếp với người bán qua tính năng Chat tích hợp hoặc số điện thoại (chỉ hiển thị sau khi đã Chat).</p>
+                <button id="chatBtn" style="background-color: #4299e1; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                    ✉️ Bắt đầu Chat
+                </button>
+                <button id="confirmBtn" style="background-color: #f6ad55; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer;">
+                    🤝 Xác nhận Đã Nhận
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="chatModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn chat-close-btn">&times;</span>
+            <h3 id="chatHeader">Trò chuyện</h3>
+            
+            <div id="chatWindow" style="height: 300px; border: 1px solid #ccc; overflow-y: auto; padding: 10px; margin-bottom: 10px; background-color: #f9f9f9; border-radius: 4px;">
+                </div>
+
+            <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." style="width: 95%;">
+            <button id="sendBtn" style="background-color: #38a169; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px;">Gửi</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+        // Tọa độ trung tâm (Ví dụ: Khu vực gần Đại học Bách khoa Hà Nội, Hà Nội)
+        const userLat = 21.0061832; 
+        const userLng = 105.8431307; // Vị trí giả định của người dùng
+
+        // Dữ liệu mẫu ban đầu
+        const items = [
+            { id: 1, name: "3 hộp Sữa Tươi", type: "Tặng/Bán rẻ", expiry: "Ngày mai", distance: 0.35, lat: 21.0075, lng: 105.8455, status: "Sắp Hỏng", seller: "Nguyễn Thị B" },
+            { id: 2, name: "1/2 củ Hành Tây", type: "Trao đổi", expiry: "3 ngày nữa", distance: 0.82, lat: 21.0050, lng: 105.8480, status: "Bình thường", seller: "Trần Văn C" },
+            { id: 3, name: "Gói Mì Tôm Hảo Hảo", type: "Bán", expiry: "3 tháng nữa", distance: 1.2, lat: 21.0100, lng: 105.8410, status: "Bình thường", seller: "Lê Thị D" },
+            { id: 4, name: "Táo Fuji (3 quả)", type: "Tặng", expiry: "Hôm nay", distance: 0.2, lat: 21.0065, lng: 105.8440, status: "Sắp Hỏng", seller: "Phạm Văn E" },
+            { id: 5, name: "Lá Bạc Hà", type: "Trao đổi", expiry: "2 ngày nữa", distance: 0.49, lat: 21.0058, lng: 105.8460, status: "Sắp Hỏng", seller: "Hoàng Thị F" },
+        ];
+
+        // Khai báo Map và trạng thái
+        let map;
+        let currentMarkers = [];
+        let isMapInitialized = false;
+        let loggedInUserName = "Bạn"; // Tên người dùng hiện tại
+
+        // Khai báo các Modal và Element
+        const loginModal = document.getElementById("loginModal");
+        const loginForm = document.getElementById("loginForm");
+        const mainContent = document.querySelector(".main-content");
+        const header = document.querySelector(".header");
+        const openModalBtn = document.getElementById("openModalBtn");
+        const postModal = document.getElementById("postModal");
+        const postForm = document.getElementById("postForm");
+        const notificationBanner = document.getElementById("notification-banner");
+        
+        const detailModal = document.getElementById("detailModal");
+        const detailBody = document.getElementById("detailBody");
+        const chatModal = document.getElementById("chatModal");
+        const chatWindow = document.getElementById("chatWindow");
+        const chatInput = document.getElementById("chatInput");
+        const sendBtn = document.getElementById("sendBtn");
+        
+        // Đóng các Modal
+        const postCloseBtn = document.querySelector(".post-close-btn");
+        if (postCloseBtn) postCloseBtn.onclick = function() { postModal.style.display = "none"; };
+        const detailCloseBtn = document.querySelector(".detail-close-btn");
+        if (detailCloseBtn) detailCloseBtn.onclick = function() { detailModal.style.display = "none"; };
+        const chatCloseBtn = document.querySelector(".chat-close-btn");
+        if (chatCloseBtn) chatCloseBtn.onclick = function() { chatModal.style.display = "none"; };
+
+        // Xử lý đóng Modal khi click ra ngoài
+        window.onclick = function(event) {
+            if (event.target == postModal) { postModal.style.display = "none"; }
+            if (event.target == detailModal) { detailModal.style.display = "none"; }
+            if (event.target == chatModal) { chatModal.style.display = "none"; }
+        }
+
+        // --- HÀM XỬ LÝ CHÍNH ---
+
+        function getMarkerColor(isExpiring) {
+            return isExpiring ? '#e53e3e' : '#38a169'; 
+        }
+        
+        function initializeMap() {
+            if (isMapInitialized) return;
+
+            map = L.map('map').setView([userLat, userLng], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            L.circleMarker([userLat, userLng], {
+                radius: 8,
+                color: '#2c5282',
+                fillColor: '#63b3ed',
+                fillOpacity: 0.8
+            }).addTo(map).bindPopup("Bạn đang ở đây").openPopup();
+
+            isMapInitialized = true;
+        }
+        
+        // Hàm gửi tin nhắn mô phỏng
+        function sendMessage(sellerName, item) {
+            const text = chatInput.value.trim();
+            if (text === "") return;
+
+            // 1. Chèn tin nhắn mới (Sent)
+            const msg = document.createElement('div');
+            msg.className = 'message sent';
+            msg.textContent = text;
+            chatWindow.appendChild(msg);
+            
+            // 2. Phản hồi mô phỏng (Received)
+            setTimeout(() => {
+                const reply = document.createElement('div');
+                reply.className = 'message received';
+                reply.textContent = `${sellerName} (Người bán) đã đọc: "Cảm ơn bạn đã liên hệ! Món ${item.name} vẫn còn. Hẹn bạn lúc 8h tối nay nhé!"`;
+                chatWindow.appendChild(reply);
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }, 1000); 
+
+            // 3. Xóa và cuộn
+            chatInput.value = '';
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // Hàm mở Modal Chat
+        function openChatModal(item) {
+            document.getElementById("chatHeader").textContent = `Trò chuyện với ${item.seller}`;
+            chatModal.style.display = "block";
+            
+            // Xóa nội dung cũ và chèn tin nhắn khởi tạo
+            chatWindow.innerHTML = `
+                <div class="message received">Chào ${loggedInUserName}! Tôi thấy bạn đang có **${item.name}**. Tôi có thể qua nhận lúc nào?</div>
+            `;
+            
+            chatWindow.scrollTop = chatWindow.scrollHeight; 
+
+            // Xử lý gửi tin nhắn khi nhấn nút Gửi
+            sendBtn.onclick = function() {
+                sendMessage(item.seller, item);
+            };
+
+            // Xử lý gửi tin nhắn khi nhấn Enter
+            chatInput.onkeypress = function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    sendMessage(item.seller, item);
+                }
+            };
+            chatInput.focus();
+        }
+
+        // Hàm mở Modal Chi tiết và điền dữ liệu
+        function openDetailModal(item) {
+            document.getElementById("detailItemName").textContent = item.name;
+            
+            detailBody.innerHTML = `
+                <p><strong>Khoảng cách:</strong> <span style="color: #2c5282;">${item.distance.toFixed(2)} km</span></p>
+                <p><strong>Tình trạng:</strong> <span style="font-weight: bold; color: ${item.status === 'Sắp Hỏng' ? '#e53e3e' : '#38a169'};">${item.status}</span></p>
+                <p><strong>Mục đích:</strong> ${item.type}</p>
+                <p><strong>Hạn dùng:</strong> ${item.expiry}</p>
+                <p><strong>Người đăng:</strong> ${item.seller} (Mô phỏng)</p>
+            `;
+            
+            document.getElementById("chatBtn").onclick = function() {
+                openChatModal(item); 
+                detailModal.style.display = "none";
+            };
+            
+            document.getElementById("confirmBtn").onclick = function() {
+                alert(`Xác nhận đã nhận thành công món "${item.name}"! Món đồ này sẽ được xóa khỏi danh sách.`);
+                detailModal.style.display = "none";
+            };
+            
+            detailModal.style.display = "block";
+        }
+
+
+        // Hàm Hiển thị Dữ liệu (Danh sách và Marker)
+        function renderItemsAndMarkers(data, isNewPost = false) {
+            if (!isMapInitialized) return;
+
+            const itemList = document.getElementById('itemList');
+            itemList.innerHTML = ''; 
+
+            currentMarkers.forEach(marker => map.removeLayer(marker));
+            currentMarkers = [];
+
+            data.forEach(item => {
+                const isExpiring = item.status === "Sắp Hỏng";
+                const color = getMarkerColor(isExpiring);
+
+                const customIcon = L.divIcon({
+                    className: 'leaflet-div-icon',
+                    html: `<div style="background-color: ${color}; width: 15px; height: 15px; border-radius: 50%; border: 3px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4);"></div>`,
+                    iconSize: [15, 15],
+                    iconAnchor: [9, 9]
+                });
+
+                const marker = L.marker([item.lat, item.lng], { icon: customIcon })
+                    .addTo(map)
+                    .bindPopup(`<b>${item.name}</b><br>Người bán: ${item.seller}`);
+                
+                currentMarkers.push(marker);
+
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                card.id = `item-${item.id}`;
+                card.innerHTML = `
+                    <h4>${item.name}</h4>
+                    <p>Mục đích: ${item.type}</p>
+                    <p class="${isExpiring ? 'status-expire' : ''}">Hạn dùng: ${item.expiry}</p>
+                    <span class="distance-tag">${item.distance.toFixed(2)} km</span>
+                `;
+                
+                // Thêm tương tác (Di chuyển Bản đồ và Mở Modal Chi tiết)
+                card.addEventListener('click', () => {
+                    map.flyTo([item.lat, item.lng], 16); 
+                    marker.openPopup();
+                    openDetailModal(item);
+                });
+
+                itemList.appendChild(card);
+            });
+            
+            if (currentMarkers.length > 0) {
+                const group = new L.FeatureGroup(currentMarkers);
+                map.fitBounds(group.getBounds().pad(0.2)); 
+            } else {
+                map.setView([userLat, userLng], 15);
+            }
+            
+            if (isNewPost && currentMarkers.length > 0) {
+                map.flyTo([data[0].lat, data[0].lng], 16); 
+                currentMarkers[0].openPopup();
+            }
+        }
+
+        // Hàm Áp dụng Bộ lọc Chính
+        function applyFilters(isNewPost = false) {
+            const maxDistance = parseFloat(document.getElementById('distanceFilter').value);
+            const status = document.getElementById('statusFilter').value;
+            
+            let filteredItems = items;
+
+            if (maxDistance !== 5) { filteredItems = filteredItems.filter(item => item.distance <= maxDistance); }
+            if (status !== 'all') { filteredItems = filteredItems.filter(item => item.status === status); }
+            
+            filteredItems.sort((a, b) => a.distance - b.distance); 
+
+            if (isNewPost && filteredItems.length > 0) {
+                const newItem = items[items.length - 1];
+                if (filteredItems.find(item => item.id === newItem.id)) {
+                    filteredItems = filteredItems.filter(item => item.id !== newItem.id);
+                    filteredItems.unshift(newItem);
+                }
+            }
+            renderItemsAndMarkers(filteredItems, isNewPost);
+        }
+
+        // Hiển thị Banner Thông báo
+        function showNotification(message) {
+            notificationBanner.textContent = message;
+            notificationBanner.style.display = "block";
+            notificationBanner.style.top = "0";
+
+            setTimeout(() => {
+                notificationBanner.style.top = "-50px";
+            }, 3000); 
+            setTimeout(() => {
+                notificationBanner.style.display = "none";
+            }, 3500); 
+        }
+
+        // --- XỬ LÝ ĐĂNG KÝ (ONBOARDING) ---
+        loginForm.onsubmit = function(event) {
+            event.preventDefault();
+
+            const userData = {
+                name: document.getElementById("userName").value,
+                role: document.getElementById("userRole").value,
+                place: document.getElementById("userPlace").value,
+                phone: document.getElementById("userPhone").value,
+            };
+            
+            loggedInUserName = userData.name; // Cập nhật tên người dùng đã đăng nhập
+
+            // Ẩn Modal Đăng ký
+            loginModal.style.display = "none";
+            
+            // Hiện giao diện ứng dụng chính
+            mainContent.style.display = 'flex';
+            header.style.display = 'block';
+            openModalBtn.style.display = 'block';
+            
+            // Khởi tạo Bản đồ và Hiển thị dữ liệu
+            initializeMap();
+            map.invalidateSize();
+            applyFilters(); 
+            
+            showNotification(`Chào mừng ${userData.name}! Bạn đã sẵn sàng chia sẻ tại ${userData.place}.`);
+        }
+
+        // --- XỬ LÝ ĐĂNG BÀI ---
+        openModalBtn.onclick = function() { postModal.style.display = "block"; }
+        
+        postForm.onsubmit = function(event) {
+            event.preventDefault();
+
+            const randomDistance = Math.floor(Math.random() * 50) / 100 + 0.1;
+            const randomLat = userLat + (Math.random() - 0.5) * 0.002;
+            const randomLng = userLng + (Math.random() - 0.5) * 0.002;
+
+            const newItem = {
+                id: items.length + 1,
+                name: document.getElementById("itemName").value,
+                type: document.getElementById("itemType").value,
+                expiry: document.getElementById("itemExpiry").value,
+                status: document.getElementById("itemStatus").value,
+                distance: randomDistance,
+                lat: randomLat, 
+                lng: randomLng,
+                seller: loggedInUserName || "Người dùng ẩn danh" // Lấy tên người dùng đã đăng nhập
+            };
+
+            items.push(newItem);
+            
+            showNotification(`[Đã đăng thành công!] Món "${newItem.name}" của bạn đang được hiển thị trong bán kính ${newItem.distance.toFixed(2)} km.`);
+            
+            applyFilters(true); 
+            
+            postForm.reset();
+            postModal.style.display = "none";
+        }
+
+        // Khởi chạy: Chờ DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', () => {
+            // Modal Login sẽ hiển thị mặc định
+        });
+    </script>
+</body>
+</html>
+
